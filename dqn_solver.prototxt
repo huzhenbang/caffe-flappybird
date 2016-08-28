@@ -9,7 +9,7 @@ test_iter: 1
 test_interval: 1
 
 # The base lr_policyearning rate, momentum and the weight decay of the network.
-base_lr: 0.1
+base_lr: 0.2
 momentum: 0.9
 weight_decay: 0.0005
 
@@ -17,7 +17,7 @@ weight_decay: 0.0005
 #lr_policy: "fixed"
 lr_policy: "step"
 gamma: 0.9
-stepsize: 50000
+stepsize: 500
 
 # Display every x iterations
 display: 1
@@ -26,7 +26,7 @@ display: 1
 max_iter: 200000
 
 # snapshot intermediate results in database.
-snapshot: 10000
+snapshot: 3000
 snapshot_prefix: "caffe_dqn_train"
 
 # solver mode: CPU or GPU

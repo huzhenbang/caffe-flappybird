@@ -7,15 +7,16 @@ import caffe
 from collections import deque 
 
 ACTIONS = 2
-MAX_TRANSITION = 50000
-OBSERVE_TRANSITION = 10000
+MAX_TRANSITION = 1000
+OBSERVE_TRANSITION = 500
 BATCH_SIZE = 32
 GAMMA = 0.99 
-EPSILON_ANNEALING_TIME = 100000
+EPSILON_ANNEALING_TIME = 50000
 EPSILON_BEGIN = 1
 EPSILON_END = 0.0001
 EPSILON_SLOPE = -(EPSILON_BEGIN - EPSILON_END) / EPSILON_ANNEALING_TIME
 ACTION_PROBABILITY = 0.1
+STATE_FRAME = 4
 
 class Dqn:
     def __init__(self, model=None):
@@ -31,7 +32,6 @@ class Dqn:
         self.experience_replay = deque()
 
     def train(self):
-        # TODO: Put all BATCH_SIZE data into net at one time.
         mini_batch = random.sample(self.experience_replay, BATCH_SIZE)
 
         state_batch = np.array([data[0] for data in mini_batch])
@@ -50,6 +50,7 @@ class Dqn:
         label_batch = []
         for idx, data in enumerate(mini_batch):
             target = data[2] + GAMMA * np.max(new_q_batch[idx]) * (1 - data[4])
+            # print target
             # label = np.zeros([ACTIONS])
             label = q_batch[idx]
             label[np.argmax(data[1])] = target
@@ -66,12 +67,11 @@ class Dqn:
             action_index = 1 if (random.random() < ACTION_PROBABILITY) else 0
             action[action_index] = 1
         else:
-            # if self.steps < OBSERVE_TRANSITION:
-            #     return np.array([1, 0])
-            state = np.zeros([BATCH_SIZE, 4, 80, 80])
-            state = np.append(state[:BATCH_SIZE - 1, :, :, :], np.reshape(self.state, [1, 4, 80, 80]), axis=0)
+            state = np.zeros([BATCH_SIZE, STATE_FRAME, 80, 80])
+            state = np.append(state[:BATCH_SIZE - 1, :, :, :], np.reshape(self.state, [1, STATE_FRAME, 80, 80]), axis=0)
             self.net.blobs['frames'].data[...] = state
             output = self.net.forward(end='fc2')
+            print "network output action:", output['fc2'][-1], np.argmax(output['fc2'][-1])
             action[np.argmax(output['fc2'][-1])] = 1
 
         if self.epsilon > EPSILON_END and self.steps > OBSERVE_TRANSITION:
@@ -80,7 +80,7 @@ class Dqn:
         return action
 
     def save_transition(self, frame, action, reward, terminal):
-        new_state = np.append(self.state[:3,:,:], frame, axis=0)
+        new_state = np.append(self.state[:STATE_FRAME - 1,:,:], frame, axis=0)
         self.experience_replay.append((self.state, action, reward, new_state, terminal))
         if len(self.experience_replay) > MAX_TRANSITION:
             self.experience_replay.popleft()
@@ -91,7 +91,7 @@ class Dqn:
         self.steps += 1
 
     def set_initial_state(self, frame):
-        self.state = np.stack((frame, frame, frame, frame), axis = 0)
+        self.state = np.stack((frame for _ in range(STATE_FRAME)), axis = 0)
 
 def preprocess(image):
     gray_image = cv2.cvtColor(cv2.resize(image, (80, 80)), cv2.COLOR_BGR2GRAY)
@@ -99,7 +99,8 @@ def preprocess(image):
     return np.reshape(binary_image,(1, 80, 80))
 
 def playgame():
-    dqn = Dqn()
+    dqn = Dqn("caffe_dqn_train_iter_3000.caffemodel")
+    # dqn = Dqn()
     flappy_bird = game_interface.GameState()
     initial_action = np.array([1, 0])
     initial_frame, reward, terminal = flappy_bird.frame_step(initial_action)
@@ -115,6 +116,8 @@ def playgame():
 
         sample = preprocess(frame)
         dqn.save_transition(sample, action, reward, terminal)
+        if terminal:
+            dqn.set_initial_state(initial_frame)
 
 playgame()
 
