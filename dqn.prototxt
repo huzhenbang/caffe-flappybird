@@ -221,6 +221,13 @@ layer {
 }
 
 layer {
+  name: "mvn1"
+  type: "MVN"
+  bottom: "fc2"
+  top: "fc2"
+}
+
+layer {
   name: "loss"
   type: "EuclideanLoss"
   #type: "SoftmaxWithLoss"

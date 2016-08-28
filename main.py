@@ -43,14 +43,15 @@ class Dqn:
         self.net.blobs['frames'].data[...] = new_state_batch
         self.net.forward(end='fc2')
         new_q_batch = self.net.blobs['fc2'].data.copy()
-        # self.net.blobs['frames'].data[...] = state_batch
-        # self.net.forward()
-        # q_batch = self.net.blobs['fc2'].data.copy()
+        self.net.blobs['frames'].data[...] = state_batch
+        self.net.forward(end='fc2')
+        q_batch = self.net.blobs['fc2'].data.copy()
 
         label_batch = []
         for idx, data in enumerate(mini_batch):
             target = data[2] + GAMMA * np.max(new_q_batch[idx]) * (1 - data[4])
-            label = np.zeros([ACTIONS])
+            # label = np.zeros([ACTIONS])
+            label = q_batch[idx]
             label[np.argmax(data[1])] = target
 
             label_batch.append(label)   
