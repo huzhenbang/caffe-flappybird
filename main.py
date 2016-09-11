@@ -1,18 +1,25 @@
 import random
+import os
+
+os.environ['GLOG_minloglevel'] = '2' 
 
 import cv2
 import numpy as np
 import game.wrapped_flappy_bird as game_interface
 import caffe
 from collections import deque 
+# from matplotlib import pyplot as plt
+# plt.axis([0, 1000, 0, 1])
+# plt.ion()
+# plt.show()
 
 ACTIONS = 2
-MAX_TRANSITION = 1000
-OBSERVE_TRANSITION = 500
+MAX_TRANSITION = 50000
+OBSERVE_TRANSITION = 10000
 BATCH_SIZE = 32
 GAMMA = 0.99 
-EPSILON_ANNEALING_TIME = 50000
-EPSILON_BEGIN = 1
+EPSILON_ANNEALING_TIME = 1000000
+EPSILON_BEGIN = 0
 EPSILON_END = 0.0001
 EPSILON_SLOPE = -(EPSILON_BEGIN - EPSILON_END) / EPSILON_ANNEALING_TIME
 ACTION_PROBABILITY = 0.1
@@ -21,7 +28,8 @@ STATE_FRAME = 4
 class Dqn:
     def __init__(self, model=None):
         solver_file = 'dqn_solver.prototxt'
-        self.solver = caffe.SGDSolver(solver_file)
+        self.solver = caffe.AdamSolver(solver_file)
+        # self.solver = caffe.SGDSolver(solver_file)
         self.net = self.solver.net
 
         if model:
@@ -30,6 +38,7 @@ class Dqn:
         self.epsilon = EPSILON_BEGIN
         self.steps = 0
         self.experience_replay = deque()
+        # self.old_conv = 0
 
     def train(self):
         mini_batch = random.sample(self.experience_replay, BATCH_SIZE)
@@ -41,25 +50,19 @@ class Dqn:
         terminal_batch = np.array([data[4] for data in mini_batch])
 
         self.net.blobs['frames'].data[...] = new_state_batch
-        self.net.forward(end='fc2')
-        new_q_batch = self.net.blobs['fc2'].data.copy()
-        self.net.blobs['frames'].data[...] = state_batch
-        self.net.forward(end='fc2')
-        q_batch = self.net.blobs['fc2'].data.copy()
+        self.net.forward(end='reduction')
+        new_q_batch = self.net.blobs['reduction'].data.copy()
 
-        label_batch = []
+        target_batch = []
         for idx, data in enumerate(mini_batch):
-            target = data[2] + GAMMA * np.max(new_q_batch[idx]) * (1 - data[4])
-            # print target
-            # label = np.zeros([ACTIONS])
-            label = q_batch[idx]
-            label[np.argmax(data[1])] = target
-
-            label_batch.append(label)   
+            target = data[2] + GAMMA * new_q_batch[idx] * (1 - data[4])
+            target_batch.append(target)  
 
         self.net.blobs['frames'].data[...] = state_batch
-        self.net.blobs['action'].data[...] = label_batch
+        self.net.blobs['action'].data[...] = action_batch
+        self.net.blobs['target'].data[...] = np.reshape(target_batch, [32, 1])
         self.solver.step(1)
+        print "steps: ", self.steps, "\tloss: ", self.net.blobs['loss'].data[...], "\tepsilon: ", self.epsilon
 
     def get_action(self):
         action =  np.zeros(ACTIONS)
@@ -69,14 +72,18 @@ class Dqn:
         else:
             state = np.zeros([BATCH_SIZE, STATE_FRAME, 80, 80])
             state = np.append(state[:BATCH_SIZE - 1, :, :, :], np.reshape(self.state, [1, STATE_FRAME, 80, 80]), axis=0)
+
             self.net.blobs['frames'].data[...] = state
             output = self.net.forward(end='fc2')
-            print "network output action:", output['fc2'][-1], np.argmax(output['fc2'][-1])
+            # new_conv = self.net.blobs['pool1'].data[...]
+            # print np.array_equal(new_conv, self.old_conv)
+            print "Q-value: ", output['fc2'][-1], "\taction: ", np.argmax(output['fc2'][-1])
             action[np.argmax(output['fc2'][-1])] = 1
 
         if self.epsilon > EPSILON_END and self.steps > OBSERVE_TRANSITION:
             self.epsilon += EPSILON_SLOPE
 
+        # self.old_conv = new_conv.copy()
         return action
 
     def save_transition(self, frame, action, reward, terminal):
@@ -99,7 +106,7 @@ def preprocess(image):
     return np.reshape(binary_image,(1, 80, 80))
 
 def playgame():
-    dqn = Dqn("caffe_dqn_train_iter_3000.caffemodel")
+    dqn = Dqn("net/caffe_dqn_train_iter_805000.caffemodel")
     # dqn = Dqn()
     flappy_bird = game_interface.GameState()
     initial_action = np.array([1, 0])
@@ -116,8 +123,8 @@ def playgame():
 
         sample = preprocess(frame)
         dqn.save_transition(sample, action, reward, terminal)
-        if terminal:
-            dqn.set_initial_state(initial_frame)
+        # if terminal:
+            # dqn.set_initial_state(initial_frame)
 
 playgame()
 

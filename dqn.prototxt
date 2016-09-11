@@ -41,6 +41,13 @@ layer {
 }
 
 layer {
+  name: "relu_conv1"
+  type: "ReLU"
+  bottom: "conv1"
+  top: "conv1"
+}
+
+layer {
   name: "pool1"
   type: "Pooling"
   bottom: "conv1"
@@ -81,20 +88,16 @@ layer {
 }
 
 layer {
-  name: "pool2"
-  type: "Pooling"
+  name: "relu_conv2"
+  type: "ReLU"
   bottom: "conv2"
-  top: "pool2"
-  pooling_param {
-    pool: MAX
-    kernel_size: 2
-    stride: 2
-  }
+  top: "conv2"
 }
+
 layer {
   name: "conv3"
   type: "Convolution"
-  bottom: "pool2"
+  bottom: "conv2"
   top: "conv3"
  param {
    lr_mult: 1
@@ -119,21 +122,9 @@ layer {
 }
 
 layer {
-  name: "pool3"
-  type: "Pooling"
-  bottom: "conv3"
-  top: "pool3"
-  pooling_param {
-    pool: MAX
-    kernel_size: 2
-    stride: 2
-  }
-}
-
-layer {
   name: "reshape"
   type: "Reshape"
-  bottom: "pool3"
+  bottom: "conv3"
   top: "reshape"
   reshape_param {
     shape {
@@ -141,13 +132,6 @@ layer {
       dim: -1
     }
   }
-}
-
-layer {
-  name: "encode1neuron"
-  bottom: "reshape"
-  top: "reshape"
-  type: "Sigmoid"
 }
 
 layer {
@@ -175,12 +159,12 @@ layer {
   }
 }
 
-layer {
-  name: "relu1"
-  type: "ReLU"
-  bottom: "fc1"
-  top: "fc1"
-}
+#layer {
+#  name: "relu1"
+#  type: "Sigmoid"
+#  bottom: "fc1"
+#  top: "fc1"
+#}
 
 layer {
   name: "action"
@@ -220,19 +204,45 @@ layer {
   }
 }
 
-#layer {
-#  name: "mvn1"
-#  type: "Sigmoid"
-#  bottom: "fc2"
-#  top: "fc2"
-#}
+layer {
+  name: "eltwise_layer"
+  type: "Eltwise"
+  bottom: "fc2"
+  bottom: "action"
+  top: "eltwise"
+  eltwise_param {
+    operation: PROD
+  }
+}
+
+layer {
+  name: "reduction"
+  type: "Reduction"
+  bottom: "eltwise"
+  top: "reduction"
+  reduction_param {
+    operation: SUM
+    axis: 1
+  }
+}
+
+layer {
+  name: "target"
+  type: "Input"
+  top: "target"
+  input_param {
+    shape {
+      dim: 32
+      dim: 1
+    }
+  }
+}
 
 layer {
   name: "loss"
   type: "EuclideanLoss"
-  #type: "SoftmaxWithLoss"
-  bottom: "fc2"
-  bottom: "action"
+  bottom: "target"
+  bottom: "reduction"
   top: "loss"
 }
 
