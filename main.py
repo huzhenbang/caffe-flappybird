@@ -1,29 +1,27 @@
 import random
 import os
-
-os.environ['GLOG_minloglevel'] = '2' 
+#
+# os.environ['GLOG_minloglevel'] = '2'
 
 import cv2
 import numpy as np
 import game.wrapped_flappy_bird as game_interface
 import caffe
-from collections import deque 
-# from matplotlib import pyplot as plt
-# plt.axis([0, 1000, 0, 1])
-# plt.ion()
-# plt.show()
+from collections import deque
 
 ACTIONS = 2
 MAX_TRANSITION = 50000
-OBSERVE_TRANSITION = 10000
+OBSERVE_TRANSITION = 100000
 BATCH_SIZE = 32
 GAMMA = 0.99 
 EPSILON_ANNEALING_TIME = 1000000
-EPSILON_BEGIN = 0
+EPSILON_BEGIN = 1
 EPSILON_END = 0.0001
 EPSILON_SLOPE = -(EPSILON_BEGIN - EPSILON_END) / EPSILON_ANNEALING_TIME
 ACTION_PROBABILITY = 0.1
 STATE_FRAME = 4
+UPDATE_STEP = 1000
+UPDATE_GAMMA = 1
 
 class Dqn:
     def __init__(self, model=None):
@@ -31,6 +29,7 @@ class Dqn:
         self.solver = caffe.AdamSolver(solver_file)
         # self.solver = caffe.SGDSolver(solver_file)
         self.net = self.solver.net
+        self.target = caffe.Net('dqn.prototxt', caffe.TEST)
 
         if model:
             self.net.copy_from(model)
@@ -49,9 +48,10 @@ class Dqn:
         new_state_batch = np.array([data[3] for data in mini_batch])
         terminal_batch = np.array([data[4] for data in mini_batch])
 
-        self.net.blobs['frames'].data[...] = new_state_batch
-        self.net.forward(end='reduction')
-        new_q_batch = self.net.blobs['reduction'].data.copy()
+        self.target.blobs['frames'].data[...] = new_state_batch
+        self.target.blobs['action'].data[...] = action_batch
+        self.target.forward(end='reduction')
+        new_q_batch = self.target.blobs['reduction'].data.copy()
 
         target_batch = []
         for idx, data in enumerate(mini_batch):
@@ -60,12 +60,12 @@ class Dqn:
 
         self.net.blobs['frames'].data[...] = state_batch
         self.net.blobs['action'].data[...] = action_batch
-        self.net.blobs['target'].data[...] = np.reshape(target_batch, [32, 1])
+        self.net.blobs['target'].data[...] = np.reshape(target_batch, [BATCH_SIZE, 1])
         self.solver.step(1)
         print "steps: ", self.steps, "\tloss: ", self.net.blobs['loss'].data[...], "\tepsilon: ", self.epsilon
 
     def get_action(self):
-        action =  np.zeros(ACTIONS)
+        action = np.zeros(ACTIONS)
         if random.random() < self.epsilon:
             action_index = 1 if (random.random() < ACTION_PROBABILITY) else 0
             action[action_index] = 1
@@ -77,7 +77,7 @@ class Dqn:
             output = self.net.forward(end='fc2')
             # new_conv = self.net.blobs['pool1'].data[...]
             # print np.array_equal(new_conv, self.old_conv)
-            print "Q-value: ", output['fc2'][-1], "\taction: ", np.argmax(output['fc2'][-1])
+            print"Q-value: ", output['fc2'][-1], "\taction: ", np.argmax(output['fc2'][-1])
             action[np.argmax(output['fc2'][-1])] = 1
 
         if self.epsilon > EPSILON_END and self.steps > OBSERVE_TRANSITION:
@@ -94,25 +94,41 @@ class Dqn:
         
         if self.steps > OBSERVE_TRANSITION:
             self.train()
+            if self.steps % UPDATE_STEP == 0:
+                self.update_target()
+
+        if self.steps % 1000 == 0:
+            print "STEP: %d" % self.steps
+
         self.state = new_state
         self.steps += 1
 
     def set_initial_state(self, frame):
         self.state = np.stack((frame for _ in range(STATE_FRAME)), axis = 0)
 
+    def update_target(self):
+        for layer in ['conv1', 'conv2', 'conv3', 'fc1', 'fc2']:
+            self.target.params[layer][0].data[...]\
+                = self.target.params[layer][0].data * (1 - UPDATE_GAMMA) + \
+                  self.net.params[layer][0].data * UPDATE_GAMMA
+            self.target.params[layer][0].data[...] \
+                = self.target.params[layer][0].data * (1 - UPDATE_GAMMA) + \
+                  self.net.params[layer][0].data * UPDATE_GAMMA
+
+
 def preprocess(image):
     gray_image = cv2.cvtColor(cv2.resize(image, (80, 80)), cv2.COLOR_BGR2GRAY)
     ret, binary_image = cv2.threshold(gray_image, 1, 255, cv2.THRESH_BINARY)
     return np.reshape(binary_image,(1, 80, 80))
 
+
 def playgame():
-    dqn = Dqn("net/caffe_dqn_train_iter_805000.caffemodel")
-    # dqn = Dqn()
+    dqn = Dqn()
     flappy_bird = game_interface.GameState()
     initial_action = np.array([1, 0])
     initial_frame, reward, terminal = flappy_bird.frame_step(initial_action)
 
-    #initial
+    # initial
     initial_frame = cv2.cvtColor(cv2.resize(initial_frame, (80, 80)), cv2.COLOR_BGR2GRAY)
     ret, initial_frame = cv2.threshold(initial_frame,1,255,cv2.THRESH_BINARY)
 
@@ -124,7 +140,7 @@ def playgame():
         sample = preprocess(frame)
         dqn.save_transition(sample, action, reward, terminal)
         # if terminal:
-            # dqn.set_initial_state(initial_frame)
+        #     dqn.set_initial_state(initial_frame)
 
 playgame()
 
